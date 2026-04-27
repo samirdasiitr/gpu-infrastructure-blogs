@@ -1,6 +1,6 @@
 title: GPU Infrastructure Engineering
 description: DGX/HGX GPU passthrough, NCCL topology, PCIe architecture
-baseurl: "/gpu-blogs"
+baseurl: "/gpu-infrastructure-blogs"
 url: "https://samirdasiitr.github.io"
 remote_theme: jekyll/minima
 plugins:
