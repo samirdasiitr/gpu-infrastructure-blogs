@@ -1,25 +1,18 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Posts on My New Hugo Project</title>
-    <link>http://localhost:1313/posts/</link>
-    <description>Recent content in Posts on My New Hugo Project</description>
+    <title>Infiniband on My New Hugo Project</title>
+    <link>http://localhost:1313/tags/infiniband/</link>
+    <description>Recent content in Infiniband on My New Hugo Project</description>
     <generator>Hugo</generator>
     <language>en-us</language>
     <lastBuildDate>Tue, 21 Apr 2026 00:00:00 +0000</lastBuildDate>
-    <atom:link href="http://localhost:1313/posts/index.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="http://localhost:1313/tags/infiniband/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>GPU and InfiniBand Passthrough for DGX/HGX H200</title>
       <link>http://localhost:1313/posts/gpu-ib-passthrough/</link>
       <pubDate>Tue, 21 Apr 2026 00:00:00 +0000</pubDate>
       <guid>http://localhost:1313/posts/gpu-ib-passthrough/</guid>
-      <description>&lt;h1 id=&#34;gpu-and-infiniband-passthrough-for-dgxhgx-h200-a-deep-dive-into-pcie-topology-iommu-groups-and-nccl-performance&#34;&gt;GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance&lt;/h1&gt;&#xA;&lt;h2 id=&#34;introduction&#34;&gt;Introduction&lt;/h2&gt;&#xA;&lt;p&gt;Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.&lt;/p&gt;&#xA;&lt;p&gt;We&amp;rsquo;ll cover:&lt;/p&gt;&#xA;&lt;ul&gt;&#xA;&lt;li&gt;IOMMU groups and ACS override for VFIO passthrough&lt;/li&gt;&#xA;&lt;li&gt;GPU + InfiniBand affinity under shared PCIe switches&lt;/li&gt;&#xA;&lt;li&gt;The difference between TI XIO3130 and Broadcom PEX890xx switch topologies&lt;/li&gt;&#xA;&lt;li&gt;NCCL topology files for PIX vs PHB-level GDR&lt;/li&gt;&#xA;&lt;li&gt;Achieving 400 Gb/s per-rail IB bandwidth inside VMs&lt;/li&gt;&#xA;&lt;/ul&gt;&#xA;&lt;hr&gt;&#xA;&lt;h2 id=&#34;pcie-topology-why-it-matters-for-gpu-virtualization&#34;&gt;PCIe Topology: Why It Matters for GPU Virtualization&lt;/h2&gt;&#xA;&lt;h3 id=&#34;the-physical-layout&#34;&gt;The Physical Layout&lt;/h3&gt;&#xA;&lt;p&gt;A DGX H200 / HGX H200 system has 8 NVIDIA H200 GPUs, 8 ConnectX-7 InfiniBand NICs, and 4 NVSwitches, all interconnected through PCIe Gen 5 switches. The critical architectural detail is that &lt;strong&gt;each GPU is paired with an affine IB NIC behind the same PCIe switch&lt;/strong&gt;.&lt;/p&gt;</description>
-    </item>
-    <item>
-      <title></title>
-      <link>http://localhost:1313/posts/gpu-ib-passthrough-nccl-topology/</link>
-      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
-      <guid>http://localhost:1313/posts/gpu-ib-passthrough-nccl-topology/</guid>
       <description>&lt;h1 id=&#34;gpu-and-infiniband-passthrough-for-dgxhgx-h200-a-deep-dive-into-pcie-topology-iommu-groups-and-nccl-performance&#34;&gt;GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance&lt;/h1&gt;&#xA;&lt;h2 id=&#34;introduction&#34;&gt;Introduction&lt;/h2&gt;&#xA;&lt;p&gt;Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.&lt;/p&gt;&#xA;&lt;p&gt;We&amp;rsquo;ll cover:&lt;/p&gt;&#xA;&lt;ul&gt;&#xA;&lt;li&gt;IOMMU groups and ACS override for VFIO passthrough&lt;/li&gt;&#xA;&lt;li&gt;GPU + InfiniBand affinity under shared PCIe switches&lt;/li&gt;&#xA;&lt;li&gt;The difference between TI XIO3130 and Broadcom PEX890xx switch topologies&lt;/li&gt;&#xA;&lt;li&gt;NCCL topology files for PIX vs PHB-level GDR&lt;/li&gt;&#xA;&lt;li&gt;Achieving 400 Gb/s per-rail IB bandwidth inside VMs&lt;/li&gt;&#xA;&lt;/ul&gt;&#xA;&lt;hr&gt;&#xA;&lt;h2 id=&#34;pcie-topology-why-it-matters-for-gpu-virtualization&#34;&gt;PCIe Topology: Why It Matters for GPU Virtualization&lt;/h2&gt;&#xA;&lt;h3 id=&#34;the-physical-layout&#34;&gt;The Physical Layout&lt;/h3&gt;&#xA;&lt;p&gt;A DGX H200 / HGX H200 system has 8 NVIDIA H200 GPUs, 8 ConnectX-7 InfiniBand NICs, and 4 NVSwitches, all interconnected through PCIe Gen 5 switches. The critical architectural detail is that &lt;strong&gt;each GPU is paired with an affine IB NIC behind the same PCIe switch&lt;/strong&gt;.&lt;/p&gt;</description>
     </item>
   </channel>

@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    
+    <title>My New Hugo Project</title>
+    <meta name="viewport" content="width=device-width,minimum-scale=1">
+    <meta name="description" content="GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance
+Introduction
+Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.
+We&rsquo;ll cover:
+
+IOMMU groups and ACS override for VFIO passthrough
+GPU &#43; InfiniBand affinity under shared PCIe switches
+The difference between TI XIO3130 and Broadcom PEX890xx switch topologies
+NCCL topology files for PIX vs PHB-level GDR
+Achieving 400 Gb/s per-rail IB bandwidth inside VMs
+
+
+PCIe Topology: Why It Matters for GPU Virtualization
+The Physical Layout
+A DGX H200 / HGX H200 system has 8 NVIDIA H200 GPUs, 8 ConnectX-7 InfiniBand NICs, and 4 NVSwitches, all interconnected through PCIe Gen 5 switches. The critical architectural detail is that each GPU is paired with an affine IB NIC behind the same PCIe switch.">
+    <meta name="generator" content="Hugo 0.160.1">
+    
+    
+    
+      <meta name="robots" content="noindex, nofollow">
+    
+    
+
+    
+<link rel="stylesheet" href="/ananke/css/main.min.css" >
+
+
+
+
+    
+
+
+    
+      
+
+    
+
+    
+
+    
+      <link rel="canonical" href="http://localhost:1313/posts/gpu-ib-passthrough-nccl-topology/">
+    
+
+    
+    
+    <meta property="og:url" content="http://localhost:1313/posts/gpu-ib-passthrough-nccl-topology/">
+  <meta property="og:site_name" content="My New Hugo Project">
+  <meta property="og:title" content="My New Hugo Project">
+  <meta property="og:description" content="GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance Introduction Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.
+We’ll cover:
+IOMMU groups and ACS override for VFIO passthrough GPU &#43; InfiniBand affinity under shared PCIe switches The difference between TI XIO3130 and Broadcom PEX890xx switch topologies NCCL topology files for PIX vs PHB-level GDR Achieving 400 Gb/s per-rail IB bandwidth inside VMs PCIe Topology: Why It Matters for GPU Virtualization The Physical Layout A DGX H200 / HGX H200 system has 8 NVIDIA H200 GPUs, 8 ConnectX-7 InfiniBand NICs, and 4 NVSwitches, all interconnected through PCIe Gen 5 switches. The critical architectural detail is that each GPU is paired with an affine IB NIC behind the same PCIe switch.">
+  <meta property="og:locale" content="en_us">
+  <meta property="og:type" content="article">
+    <meta property="article:section" content="posts">
+
+  <meta itemprop="name" content="My New Hugo Project">
+  <meta itemprop="description" content="GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance Introduction Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.
+We’ll cover:
+IOMMU groups and ACS override for VFIO passthrough GPU &#43; InfiniBand affinity under shared PCIe switches The difference between TI XIO3130 and Broadcom PEX890xx switch topologies NCCL topology files for PIX vs PHB-level GDR Achieving 400 Gb/s per-rail IB bandwidth inside VMs PCIe Topology: Why It Matters for GPU Virtualization The Physical Layout A DGX H200 / HGX H200 system has 8 NVIDIA H200 GPUs, 8 ConnectX-7 InfiniBand NICs, and 4 NVSwitches, all interconnected through PCIe Gen 5 switches. The critical architectural detail is that each GPU is paired with an affine IB NIC behind the same PCIe switch.">
+  <meta itemprop="wordCount" content="2332">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="My New Hugo Project">
+  <meta name="twitter:description" content="GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance Introduction Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.
+We’ll cover:
+IOMMU groups and ACS override for VFIO passthrough GPU &#43; InfiniBand affinity under shared PCIe switches The difference between TI XIO3130 and Broadcom PEX890xx switch topologies NCCL topology files for PIX vs PHB-level GDR Achieving 400 Gb/s per-rail IB bandwidth inside VMs PCIe Topology: Why It Matters for GPU Virtualization The Physical Layout A DGX H200 / HGX H200 system has 8 NVIDIA H200 GPUs, 8 ConnectX-7 InfiniBand NICs, and 4 NVSwitches, all interconnected through PCIe Gen 5 switches. The critical architectural detail is that each GPU is paired with an affine IB NIC behind the same PCIe switch.">
+
+	
+  </head><body class="ma0 avenir bg-near-white development is-page is-page page-gpu-ib-passthrough-nccl-topology">
+    
+   
+  
+
+  <header>
+    <div class="bg-black">
+      <nav class="pv3 ph3 ph4-ns" role="navigation">
+  <div class="flex-l center items-center justify-between">
+    <a href="/" class="f3 fw2 hover-white white-90 dib no-underline">
+      
+        My New Hugo Project
+      
+    </a>
+    <div class="flex-l items-center">
+      
+
+      
+      <div class="ananke-socials"></div>
+
+    </div>
+  </div>
+</nav>
+
+    </div>
+  </header>
+
+
+
+    <main class="pb7" role="main">
+      
+  
+
+  <article class="page-gpu-ib-passthrough-nccl-topology flex-l mw7 center ph3 flex-wrap justify-between">
+    <header class="mt4 w-100">
+      <aside class="instapaper_ignoref b helvetica tracked ttu">
+          
+        Posts
+      </aside><div id="sharing" class="mt3 ananke-socials"></div>
+<h1 class="f1 athelas mt3 mb1"></h1>
+      
+      
+      
+
+      
+      
+    </header>
+    <div class="nested-copy-line-height lh-copy serif f4 nested-links mid-gray pr4-l w-100-l"><h1 id="gpu-and-infiniband-passthrough-for-dgxhgx-h200-a-deep-dive-into-pcie-topology-iommu-groups-and-nccl-performance">GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance</h1>
+<h2 id="introduction">Introduction</h2>
+<p>Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.</p>
+<p>We&rsquo;ll cover:</p>
+<ul>
+<li>IOMMU groups and ACS override for VFIO passthrough</li>
+<li>GPU + InfiniBand affinity under shared PCIe switches</li>
+<li>The difference between TI XIO3130 and Broadcom PEX890xx switch topologies</li>
+<li>NCCL topology files for PIX vs PHB-level GDR</li>
+<li>Achieving 400 Gb/s per-rail IB bandwidth inside VMs</li>
+</ul>
+<hr>
+<h2 id="pcie-topology-why-it-matters-for-gpu-virtualization">PCIe Topology: Why It Matters for GPU Virtualization</h2>
+<h3 id="the-physical-layout">The Physical Layout</h3>
+<p>A DGX H200 / HGX H200 system has 8 NVIDIA H200 GPUs, 8 ConnectX-7 InfiniBand NICs, and 4 NVSwitches, all interconnected through PCIe Gen 5 switches. The critical architectural detail is that <strong>each GPU is paired with an affine IB NIC behind the same PCIe switch</strong>.</p>
+<pre tabindex="0"><code>CPU Socket 0                          CPU Socket 1
+    │                                     │
+    ├── PCIe Root Port                    ├── PCIe Root Port
+    │   └── PCIe Switch                   │   └── PCIe Switch
+    │       ├── GPU 0 (H200)              │       ├── GPU 4 (H200)
+    │       └── CX-7 IB NIC 0            │       └── CX-7 IB NIC 4
+    │                                     │
+    ├── PCIe Root Port                    ├── PCIe Root Port
+    │   └── PCIe Switch                   │   └── PCIe Switch
+    │       ├── GPU 1 (H200)              │       ├── GPU 5 (H200)
+    │       └── CX-7 IB NIC 1            │       └── CX-7 IB NIC 5
+    │                                     │
+    ├── PCIe Root Port                    ├── PCIe Root Port
+    │   └── PCIe Switch                   │   └── PCIe Switch
+    │       ├── GPU 2 (H200)              │       ├── GPU 6 (H200)
+    │       └── CX-7 IB NIC 2            │       └── CX-7 IB NIC 6
+    │                                     │
+    ├── PCIe Root Port                    ├── PCIe Root Port
+    │   └── PCIe Switch                   │   └── PCIe Switch
+    │       ├── GPU 3 (H200)              │       ├── GPU 7 (H200)
+    │       └── CX-7 IB NIC 3            │       └── CX-7 IB NIC 7
+    │                                     │
+    └── NVSwitch 0, 1                    └── NVSwitch 2, 3
+</code></pre><p>This pairing exists because GPUDirect RDMA (GDR) requires the GPU and IB NIC to communicate with minimal PCIe hops. When both are behind the same switch, DMA transfers go directly through the switch fabric without traversing the CPU&rsquo;s root complex.</p>
+<h3 id="pcie-proximity-levels">PCIe Proximity Levels</h3>
+<p>NVIDIA defines proximity levels that NCCL uses to make routing decisions:</p>
+<table>
+  <thead>
+      <tr>
+          <th>Level</th>
+          <th>Name</th>
+          <th>Meaning</th>
+          <th>Typical Bandwidth</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>PIX</td>
+          <td>Same Switch</td>
+          <td>GPU and NIC behind the same PCIe switch</td>
+          <td>Full PCIe Gen5 x16 (~64 GB/s)</td>
+      </tr>
+      <tr>
+          <td>PXB</td>
+          <td>Cross Bridge</td>
+          <td>Traverses multiple PCIe bridges/switches</td>
+          <td>Slightly reduced</td>
+      </tr>
+      <tr>
+          <td>PHB</td>
+          <td>Host Bridge</td>
+          <td>Goes through the CPU&rsquo;s PCIe root complex</td>
+          <td>~32-48 GB/s</td>
+      </tr>
+      <tr>
+          <td>SYS</td>
+          <td>Cross Socket</td>
+          <td>Crosses the inter-socket link (UPI/QPI)</td>
+          <td>~16-24 GB/s</td>
+      </tr>
+      <tr>
+          <td>NV#</td>
+          <td>NVLink</td>
+          <td># NVLink connections (GPU-GPU only)</td>
+          <td>18×26.5 = ~477 GB/s</td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>For GPUDirect RDMA, PIX is optimal.</strong> Data flows: GPU → PCIe switch → IB NIC, never touching CPU memory.</p>
+<hr>
+<h2 id="two-switch-architectures-ti-xio3130-vs-broadcom-pex890xx">Two Switch Architectures: TI XIO3130 vs Broadcom PEX890xx</h2>
+<h3 id="connectx-7-internal-switch-ti-xio3130-based">ConnectX-7 Internal Switch (TI XIO3130-based)</h3>
+<p>On DGX H200 systems, the ConnectX-7 NIC itself acts as a PCIe switch. The CX-7 contains an internal bridge (based on TI XIO3130 silicon) that provides downstream ports for both the IB function and the paired GPU.</p>
+<pre tabindex="0"><code>lspci -tv (inside VM with device passthrough):
+
+ +-[0000:64]-+-00.0  TI XIO3130 PCIe Switch (Upstream)
+ |           +-00.0-[65-66]--+-00.0  TI XIO3130 (Downstream)
+ |           |               └-01.0  TI XIO3130 (Downstream)
+ |           +-66:00.0  NVIDIA H200 GPU
+ |           └-67:00.0  Mellanox ConnectX-7 IB
+</code></pre><p><strong>Key characteristic:</strong> When the TI switch is passed through alongside GPU and IB, <code>nvidia-smi topo -m</code> shows <strong>PIX</strong> between GPU and NIC — both are behind the same virtual PCIe switch.</p>
+<p><strong>PCIe Device IDs:</strong></p>
+<ul>
+<li><code>104c:8232</code> — TI XIO3130 Upstream Port</li>
+<li><code>104c:8233</code> — TI XIO3130 Downstream Port</li>
+</ul>
+<h3 id="broadcom-pex890xx-gen-5-switch">Broadcom PEX890xx Gen 5 Switch</h3>
+<p>HGX H200 systems (the baseboard variant without integrated CPU) use Broadcom PEX890xx PCIe Gen 5 switches. These are external switches connecting GPUs, NICs, NVMe SSDs, and the host CPU.</p>
+<pre tabindex="0"><code>lspci -tv (host view):
+
+ +-[0000:4c]-+-01.0-[4d-52]--00.0-[4e-52]--  Broadcom PEX890xx
+ |                                           +-00.0-[4f]  CX-7 IB PF + VFs
+ |                                           └-02.0-[50-52]  NVIDIA H200 GPU
+</code></pre><p><strong>Key characteristic:</strong> The PEX890xx is a larger switch fabric that also connects NVMe storage and management endpoints. It exposes management functions via the <code>switchtec</code> driver for bandwidth monitoring.</p>
+<p><strong>PCIe Device IDs:</strong></p>
+<ul>
+<li><code>1000:c030</code> — PEX890xx Switch Port (upstream/downstream)</li>
+<li><code>1000:00b2</code> — PEX890xx Management Endpoint</li>
+</ul>
+<h3 id="topology-comparison">Topology Comparison</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Feature</th>
+          <th>TI XIO3130 (DGX)</th>
+          <th>Broadcom PEX890xx (HGX)</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>Location</td>
+          <td>Internal to CX-7</td>
+          <td>External baseboard switch</td>
+      </tr>
+      <tr>
+          <td>Gen</td>
+          <td>PCIe Gen 5</td>
+          <td>PCIe Gen 5</td>
+      </tr>
+      <tr>
+          <td>Ports per switch</td>
+          <td>2-3 (GPU + IB + optional NVMe)</td>
+          <td>36-72 (shared fabric)</td>
+      </tr>
+      <tr>
+          <td>Management counters</td>
+          <td>No (no management endpoint)</td>
+          <td>Yes (via switchtec)</td>
+      </tr>
+      <tr>
+          <td>Pass-through needed</td>
+          <td>TI switch + GPU + IB</td>
+          <td>GPU + IB (switch too large to pass)</td>
+      </tr>
+      <tr>
+          <td>Guest PIX topology</td>
+          <td>Yes (if switch passed through)</td>
+          <td>No (devices on separate root ports)</td>
+      </tr>
+  </tbody>
+</table>
+<hr>
+<h2 id="iommu-groups-the-foundation-of-vfio-passthrough">IOMMU Groups: The Foundation of VFIO Passthrough</h2>
+<h3 id="what-are-iommu-groups">What Are IOMMU Groups?</h3>
+<p>An IOMMU group is the smallest set of devices that the IOMMU can isolate. VFIO requires that <strong>all devices in a group</strong> be assigned to the same VM (or all stay on the host). You cannot split an IOMMU group across host and guest.</p>
+<h3 id="discovering-iommu-groups">Discovering IOMMU Groups</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># List all devices with their IOMMU groups</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> g in /sys/kernel/iommu_groups/*/devices/*; <span style="color:#66d9ef">do</span>
+</span></span><span style="display:flex;"><span>    GROUP<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>basename <span style="color:#66d9ef">$(</span>dirname <span style="color:#66d9ef">$(</span>dirname $g<span style="color:#66d9ef">)))</span>
+</span></span><span style="display:flex;"><span>    BDF<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>basename $g<span style="color:#66d9ef">)</span>
+</span></span><span style="display:flex;"><span>    DESC<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>lspci -nns $BDF 2&gt;/dev/null | cut -d<span style="color:#e6db74">&#39; &#39;</span> -f2-<span style="color:#66d9ef">)</span>
+</span></span><span style="display:flex;"><span>    echo <span style="color:#e6db74">&#34;group </span>$GROUP<span style="color:#e6db74">: </span>$BDF<span style="color:#e6db74"> </span>$DESC<span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">done</span> | sort -t<span style="color:#e6db74">&#39; &#39;</span> -k2 -n
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Filter to just GPU and IB devices</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> d in <span style="color:#66d9ef">$(</span>lspci -D | grep -iE <span style="color:#e6db74">&#39;10de:|15b3:1021&#39;</span> | awk <span style="color:#e6db74">&#39;{print $1}&#39;</span><span style="color:#66d9ef">)</span>; <span style="color:#66d9ef">do</span>
+</span></span><span style="display:flex;"><span>    GRP<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>basename <span style="color:#66d9ef">$(</span>readlink -f /sys/bus/pci/devices/$d/iommu_group<span style="color:#66d9ef">))</span>
+</span></span><span style="display:flex;"><span>    MEMBERS<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>ls /sys/kernel/iommu_groups/$GRP/devices | wc -l<span style="color:#66d9ef">)</span>
+</span></span><span style="display:flex;"><span>    echo <span style="color:#e6db74">&#34;group </span>$GRP<span style="color:#e6db74"> (</span>$MEMBERS<span style="color:#e6db74"> devs): </span>$d<span style="color:#e6db74"> </span><span style="color:#66d9ef">$(</span>lspci -s $d | cut -d<span style="color:#e6db74">&#39; &#39;</span> -f2-<span style="color:#66d9ef">)</span><span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">done</span>
+</span></span></code></pre></div><h3 id="the-giant-iommu-group-problem">The Giant IOMMU Group Problem</h3>
+<p>On many HGX systems, you&rsquo;ll find that <strong>every device on the baseboard is in a single IOMMU group</strong>. This happens because the PCIe switches lack Access Control Services (ACS) — without ACS, the IOMMU can&rsquo;t guarantee isolation between devices behind the same switch, so the kernel conservatively groups everything together.</p>
+<pre tabindex="0"><code># Symptom: one massive group containing ALL GPUs, NICs, NVMe, NVSwitches...
+group 45: 0000:1b:00.0 3D controller: NVIDIA H200
+group 45: 0000:43:00.0 3D controller: NVIDIA H200
+group 45: 0000:18:00.0 Infiniband controller: ConnectX-7
+group 45: 0000:40:00.0 Infiniband controller: ConnectX-7
+... (hundreds of devices)
+</code></pre><h3 id="acs-override-breaking-the-giant-group">ACS Override: Breaking the Giant Group</h3>
+<p>The <code>pcie_acs_override</code> kernel parameter tells the kernel to trust PCIe switch isolation even without hardware ACS. This is standard practice for GPU virtualization on DGX/HGX:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># Add to kernel boot parameters</span>
+</span></span><span style="display:flex;"><span>GRUB_CMDLINE_LINUX<span style="color:#f92672">=</span><span style="color:#e6db74">&#34;intel_iommu=on iommu=pt pcie_acs_override=downstream,multifunction vfio_iommu_type1.allow_unsafe_interrupts=1&#34;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>update-grub
+</span></span><span style="display:flex;"><span>reboot
+</span></span></code></pre></div><p>After reboot, each GPU and IB NIC should be in its own small IOMMU group (1-3 devices):</p>
+<pre tabindex="0"><code>group 45: 0000:1b:00.0 3D controller: NVIDIA H200
+group 46: 0000:18:00.0 Infiniband controller: ConnectX-7
+group 47: 0000:43:00.0 3D controller: NVIDIA H200
+group 48: 0000:40:00.0 Infiniband controller: ConnectX-7
+</code></pre><p><strong>Security note:</strong> <code>pcie_acs_override</code> trusts the PCIe fabric to provide isolation. On bare-metal DGX/HGX with a single tenant, this is the standard NVIDIA-recommended configuration.</p>
+<h3 id="required-kernel-parameters">Required Kernel Parameters</h3>
+<table>
+  <thead>
+      <tr>
+          <th>Parameter</th>
+          <th>Purpose</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><code>intel_iommu=on</code></td>
+          <td>Enable Intel VT-d IOMMU</td>
+      </tr>
+      <tr>
+          <td><code>iommu=pt</code></td>
+          <td>Passthrough mode — host devices bypass IOMMU for performance</td>
+      </tr>
+      <tr>
+          <td><code>pcie_acs_override=downstream,multifunction</code></td>
+          <td>Split large IOMMU groups</td>
+      </tr>
+      <tr>
+          <td><code>vfio_iommu_type1.allow_unsafe_interrupts=1</code></td>
+          <td>Allow VFIO on platforms without interrupt remapping</td>
+      </tr>
+  </tbody>
+</table>
+<hr>
+<h2 id="vfio-passthrough-gpu--ib-to-a-vm">VFIO Passthrough: GPU + IB to a VM</h2>
+<h3 id="pf-vs-vf-passthrough">PF vs VF Passthrough</h3>
+<p>For IB NICs, you have two options:</p>
+<table>
+  <thead>
+      <tr>
+          <th>Approach</th>
+          <th>Bandwidth</th>
+          <th>Complexity</th>
+          <th>Use Case</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td><strong>PF Passthrough</strong></td>
+          <td>Full 400 Gb/s</td>
+          <td>Simple</td>
+          <td>1 VM per node</td>
+      </tr>
+      <tr>
+          <td><strong>SR-IOV VF</strong></td>
+          <td>Shared (depends on config)</td>
+          <td>Complex</td>
+          <td>Multiple VMs per node</td>
+      </tr>
+  </tbody>
+</table>
+<p><strong>For 1 VM per node (the DGX model), always use PF passthrough.</strong> VFs add overhead and complexity with no benefit when there&rsquo;s only one tenant.</p>
+<h3 id="setting-up-vfio-passthrough">Setting Up VFIO Passthrough</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># 1. Load VFIO modules</span>
+</span></span><span style="display:flex;"><span>modprobe vfio-pci
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># 2. Unbind devices from host drivers and bind to vfio-pci</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> bdf in 0000:1b:00.0 0000:18:00.0; <span style="color:#66d9ef">do</span>  <span style="color:#75715e"># GPU + IB PF</span>
+</span></span><span style="display:flex;"><span>    echo $bdf &gt; /sys/bus/pci/devices/$bdf/driver/unbind 2&gt;/dev/null
+</span></span><span style="display:flex;"><span>    echo <span style="color:#e6db74">&#34;vfio-pci&#34;</span> &gt; /sys/bus/pci/devices/$bdf/driver_override
+</span></span><span style="display:flex;"><span>    echo $bdf &gt; /sys/bus/pci/drivers_probe
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">done</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># 3. Verify</span>
+</span></span><span style="display:flex;"><span>ls /dev/vfio/
+</span></span></code></pre></div><h3 id="libvirt-xml-for-gpu--ib-passthrough">Libvirt XML for GPU + IB Passthrough</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-xml" data-lang="xml"><span style="display:flex;"><span><span style="color:#75715e">&lt;!-- GPU 0 (NUMA 0) --&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;hostdev</span> <span style="color:#a6e22e">mode=</span><span style="color:#e6db74">&#34;subsystem&#34;</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#34;pci&#34;</span> <span style="color:#a6e22e">managed=</span><span style="color:#e6db74">&#34;yes&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;driver</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#34;vfio&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;source&gt;&lt;address</span> <span style="color:#a6e22e">domain=</span><span style="color:#e6db74">&#34;0x0000&#34;</span> <span style="color:#a6e22e">bus=</span><span style="color:#e6db74">&#34;0x1b&#34;</span> <span style="color:#a6e22e">slot=</span><span style="color:#e6db74">&#34;0x00&#34;</span> <span style="color:#a6e22e">function=</span><span style="color:#e6db74">&#34;0x0&#34;</span><span style="color:#f92672">/&gt;&lt;/source&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;rom</span> <span style="color:#a6e22e">bar=</span><span style="color:#e6db74">&#34;off&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;/hostdev&gt;</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">&lt;!-- IB PF for GPU 0 (same CX-7 switch) --&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;hostdev</span> <span style="color:#a6e22e">mode=</span><span style="color:#e6db74">&#34;subsystem&#34;</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#34;pci&#34;</span> <span style="color:#a6e22e">managed=</span><span style="color:#e6db74">&#34;yes&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;driver</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#34;vfio&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;source&gt;&lt;address</span> <span style="color:#a6e22e">domain=</span><span style="color:#e6db74">&#34;0x0000&#34;</span> <span style="color:#a6e22e">bus=</span><span style="color:#e6db74">&#34;0x18&#34;</span> <span style="color:#a6e22e">slot=</span><span style="color:#e6db74">&#34;0x00&#34;</span> <span style="color:#a6e22e">function=</span><span style="color:#e6db74">&#34;0x0&#34;</span><span style="color:#f92672">/&gt;&lt;/source&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;rom</span> <span style="color:#a6e22e">bar=</span><span style="color:#e6db74">&#34;off&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;/hostdev&gt;</span>
+</span></span></code></pre></div><p>With <code>managed='yes'</code>, libvirt automatically handles driver unbind/rebind on VM start/stop.</p>
+<h3 id="memory-configuration-for-large-vms">Memory Configuration for Large VMs</h3>
+<p>GPU passthrough VMs with hugepages require careful memory sizing:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-xml" data-lang="xml"><span style="display:flex;"><span><span style="color:#f92672">&lt;memory</span> <span style="color:#a6e22e">unit=</span><span style="color:#e6db74">&#34;KiB&#34;</span><span style="color:#f92672">&gt;</span>1073741824<span style="color:#f92672">&lt;/memory&gt;</span>  <span style="color:#75715e">&lt;!-- 1024 GiB total --&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;memoryBacking&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;hugepages/&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;source</span> <span style="color:#a6e22e">type=</span><span style="color:#e6db74">&#34;file&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;access</span> <span style="color:#a6e22e">mode=</span><span style="color:#e6db74">&#34;shared&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;allocation</span> <span style="color:#a6e22e">mode=</span><span style="color:#e6db74">&#34;immediate&#34;</span> <span style="color:#a6e22e">threads=</span><span style="color:#e6db74">&#34;32&#34;</span><span style="color:#f92672">/&gt;</span>  <span style="color:#75715e">&lt;!-- parallel hugepage allocation --&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;/memoryBacking&gt;</span>
+</span></span></code></pre></div><p>The <code>threads=&quot;32&quot;</code> parameter parallelizes hugepage preallocation — without it, touching 1 TiB of 1 GiB hugepages takes 60+ seconds serially.</p>
+<hr>
+<h2 id="inside-the-vm-pcie-topology-and-nccl">Inside the VM: PCIe Topology and NCCL</h2>
+<h3 id="the-pix-vs-phb-challenge">The PIX vs PHB Challenge</h3>
+<p>When you pass GPU and IB as separate <code>&lt;hostdev&gt;</code> entries, libvirt places each on its own virtual pcie-root-port:</p>
+<pre tabindex="0"><code>Guest PCI topology:
+  pcie.0 (root bus)
+    ├── pci.6 (root port) → GPU 0
+    ├── pci.7 (root port) → GPU 1
+    ...
+    ├── pci.14 (root port) → IB 0
+    ├── pci.15 (root port) → IB 1
+</code></pre><p>Since GPU and IB are on <strong>separate root ports</strong>, <code>nvidia-smi topo -m</code> shows <strong>PHB</strong> (not PIX):</p>
+<pre tabindex="0"><code>        GPU0    NIC0    NIC1
+GPU0     X      PHB     PHB      ← No PIX!
+NIC0    PHB      X      PHB
+NIC1    PHB     PHB      X
+</code></pre><h3 id="restoring-pix-topology">Restoring PIX Topology</h3>
+<p>To get PIX, the GPU and IB must be behind the <strong>same virtual PCIe switch</strong> in the guest. Two approaches:</p>
+<p><strong>Approach 1: Pass the TI switch through (DGX systems)</strong></p>
+<p>If the TI XIO3130 switch is in the same IOMMU group as the GPU/IB, it gets passed through automatically. The guest then sees the physical switch topology and reports PIX.</p>
+<p><strong>Approach 2: NCCL topology file override (works everywhere)</strong></p>
+<p>Even without guest-level PIX, NCCL can be told the correct affinity via <code>NCCL_TOPO_FILE</code>. This is the recommended approach for production:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-xml" data-lang="xml"><span style="display:flex;"><span><span style="color:#75715e">&lt;!-- /etc/nccl-topo.xml --&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;system</span> <span style="color:#a6e22e">version=</span><span style="color:#e6db74">&#34;1&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;cpu</span> <span style="color:#a6e22e">numaid=</span><span style="color:#e6db74">&#34;0&#34;</span> <span style="color:#a6e22e">affinity=</span><span style="color:#e6db74">&#34;ffffffff,ffffffff&#34;</span> <span style="color:#a6e22e">arch=</span><span style="color:#e6db74">&#34;x86_64&#34;</span> <span style="color:#a6e22e">vendor=</span><span style="color:#e6db74">&#34;GenuineIntel&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">&lt;!-- GPU 0 and its affine IB NIC under the same CPU node --&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;pci</span> <span style="color:#a6e22e">busid=</span><span style="color:#e6db74">&#34;0000:06:00.0&#34;</span> <span style="color:#a6e22e">class=</span><span style="color:#e6db74">&#34;0x030200&#34;</span> <span style="color:#a6e22e">link_speed=</span><span style="color:#e6db74">&#34;32.0 GT/s PCIe&#34;</span> <span style="color:#a6e22e">link_width=</span><span style="color:#e6db74">&#34;16&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">&lt;gpu</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#34;0&#34;</span> <span style="color:#a6e22e">sm=</span><span style="color:#e6db74">&#34;90&#34;</span> <span style="color:#a6e22e">mem=</span><span style="color:#e6db74">&#34;141312&#34;</span> <span style="color:#a6e22e">gdr=</span><span style="color:#e6db74">&#34;1&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;/pci&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;pci</span> <span style="color:#a6e22e">busid=</span><span style="color:#e6db74">&#34;0000:0e:00.0&#34;</span> <span style="color:#a6e22e">class=</span><span style="color:#e6db74">&#34;0x020700&#34;</span> <span style="color:#a6e22e">link_speed=</span><span style="color:#e6db74">&#34;32.0 GT/s PCIe&#34;</span> <span style="color:#a6e22e">link_width=</span><span style="color:#e6db74">&#34;16&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">&lt;nic</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#34;mlx5_0&#34;</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#34;0&#34;</span> <span style="color:#a6e22e">speed=</span><span style="color:#e6db74">&#34;400&#34;</span> <span style="color:#a6e22e">port=</span><span style="color:#e6db74">&#34;1&#34;</span> <span style="color:#a6e22e">gdr=</span><span style="color:#e6db74">&#34;1&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;/pci&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">&lt;!-- GPU 1 and its affine IB NIC --&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;pci</span> <span style="color:#a6e22e">busid=</span><span style="color:#e6db74">&#34;0000:07:00.0&#34;</span> <span style="color:#a6e22e">class=</span><span style="color:#e6db74">&#34;0x030200&#34;</span> <span style="color:#a6e22e">link_speed=</span><span style="color:#e6db74">&#34;32.0 GT/s PCIe&#34;</span> <span style="color:#a6e22e">link_width=</span><span style="color:#e6db74">&#34;16&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">&lt;gpu</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#34;1&#34;</span> <span style="color:#a6e22e">sm=</span><span style="color:#e6db74">&#34;90&#34;</span> <span style="color:#a6e22e">mem=</span><span style="color:#e6db74">&#34;141312&#34;</span> <span style="color:#a6e22e">gdr=</span><span style="color:#e6db74">&#34;1&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;/pci&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;pci</span> <span style="color:#a6e22e">busid=</span><span style="color:#e6db74">&#34;0000:0f:00.0&#34;</span> <span style="color:#a6e22e">class=</span><span style="color:#e6db74">&#34;0x020700&#34;</span> <span style="color:#a6e22e">link_speed=</span><span style="color:#e6db74">&#34;32.0 GT/s PCIe&#34;</span> <span style="color:#a6e22e">link_width=</span><span style="color:#e6db74">&#34;16&#34;</span><span style="color:#f92672">&gt;</span>
+</span></span><span style="display:flex;"><span>      <span style="color:#f92672">&lt;nic</span> <span style="color:#a6e22e">name=</span><span style="color:#e6db74">&#34;mlx5_1&#34;</span> <span style="color:#a6e22e">dev=</span><span style="color:#e6db74">&#34;1&#34;</span> <span style="color:#a6e22e">speed=</span><span style="color:#e6db74">&#34;400&#34;</span> <span style="color:#a6e22e">port=</span><span style="color:#e6db74">&#34;1&#34;</span> <span style="color:#a6e22e">gdr=</span><span style="color:#e6db74">&#34;1&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;/pci&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">&lt;!-- ... repeat for all 8 GPU+NIC pairs ... --&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;/cpu&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;nvswitches&gt;</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">&lt;nvswitch</span> <span style="color:#a6e22e">link_bw=</span><span style="color:#e6db74">&#34;900&#34;</span><span style="color:#f92672">/&gt;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#f92672">&lt;/nvswitches&gt;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f92672">&lt;/system&gt;</span>
+</span></span></code></pre></div><h3 id="does-phb-vs-pix-affect-performance">Does PHB vs PIX Affect Performance?</h3>
+<p><strong>Short answer: No, for data throughput.</strong></p>
+<p>The guest&rsquo;s virtual PCIe topology is just metadata — the actual DMA path is determined by the host hardware. When the GPU does a RDMA write to the IB NIC:</p>
+<ol>
+<li>GPU issues a PCIe TLP (Transaction Layer Packet)</li>
+<li>The TLP travels through the <strong>host&rsquo;s physical PCIe fabric</strong></li>
+<li>The host&rsquo;s TI/Broadcom switch routes it directly to the IB NIC</li>
+<li>The CPU is never involved (true P2P)</li>
+</ol>
+<p>The guest seeing PHB instead of PIX only affects:</p>
+<ul>
+<li><strong>NCCL&rsquo;s automatic topology detection</strong> — NCCL may not pair GPU with the optimal NIC</li>
+<li><strong>GDR enable/disable decision</strong> — NCCL may refuse GDR at certain levels</li>
+</ul>
+<p>Both are solved by <code>NCCL_TOPO_FILE</code> and <code>NCCL_NET_GDR_LEVEL=SYS</code>.</p>
+<h3 id="proving-p2p-not-phb-at-the-hardware-level">Proving P2P (Not PHB) at the Hardware Level</h3>
+<p>Use GPU PCIe counters to prove direct DMA:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># Terminal 1: Run RDMA traffic with CUDA memory</span>
+</span></span><span style="display:flex;"><span>ib_write_bw -d mlx5_0 --use_cuda<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span> -s <span style="color:#ae81ff">4194304</span> -n <span style="color:#ae81ff">50000</span> &amp;
+</span></span><span style="display:flex;"><span>sleep <span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span>ib_write_bw -d mlx5_0 --use_cuda<span style="color:#f92672">=</span><span style="color:#ae81ff">0</span> -s <span style="color:#ae81ff">4194304</span> -n <span style="color:#ae81ff">50000</span> localhost
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Terminal 2: Watch GPU PCIe counters</span>
+</span></span><span style="display:flex;"><span>nvidia-smi dmon -s t -i <span style="color:#ae81ff">0</span> -d <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Columns: pcie_tx (MB/s)  pcie_rx (MB/s)</span>
+</span></span></code></pre></div><p>If the GPU shows PCIe TX/RX matching the IB transfer rate, it&rsquo;s doing DMA directly (P2P). If the GPU shows zero but the transfer works, the CPU is staging the data (PHB).</p>
+<hr>
+<h2 id="nccl-configuration-for-maximum-performance">NCCL Configuration for Maximum Performance</h2>
+<h3 id="environment-variables">Environment Variables</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># IB device selection (auto-detect per node)</span>
+</span></span><span style="display:flex;"><span>export NCCL_IB_HCA<span style="color:#f92672">=</span><span style="color:#66d9ef">$(for</span> d in /sys/class/infiniband/mlx5_*; <span style="color:#66d9ef">do</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">[</span> <span style="color:#e6db74">&#34;</span><span style="color:#66d9ef">$(</span>cat $d/ports/1/link_layer<span style="color:#66d9ef">)</span><span style="color:#e6db74">&#34;</span> <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;InfiniBand&#34;</span> <span style="color:#f92672">]</span> <span style="color:#f92672">&amp;&amp;</span> basename $d
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">done</span> | paste -sd,<span style="color:#66d9ef">)</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Topology and GDR</span>
+</span></span><span style="display:flex;"><span>export NCCL_TOPO_FILE<span style="color:#f92672">=</span>/etc/nccl-topo.xml
+</span></span><span style="display:flex;"><span>export NCCL_NET_GDR_LEVEL<span style="color:#f92672">=</span>SYS     <span style="color:#75715e"># Allow GDR at any topology distance</span>
+</span></span><span style="display:flex;"><span>export NCCL_NET_GDR_READ<span style="color:#f92672">=</span><span style="color:#ae81ff">1</span>         <span style="color:#75715e"># Enable GDR for reads</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Performance tuning</span>
+</span></span><span style="display:flex;"><span>export NCCL_IB_QPS_PER_CONNECTION<span style="color:#f92672">=</span><span style="color:#ae81ff">8</span>
+</span></span><span style="display:flex;"><span>export NCCL_MIN_NCHANNELS<span style="color:#f92672">=</span><span style="color:#ae81ff">32</span>
+</span></span><span style="display:flex;"><span>export NCCL_SOCKET_IFNAME<span style="color:#f92672">=</span>enp2s0   <span style="color:#75715e"># Management network for bootstrap</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># GPUDirect RDMA kernel module</span>
+</span></span><span style="display:flex;"><span>modprobe nvidia_peermem  <span style="color:#75715e"># or nv_peer_mem</span>
+</span></span></code></pre></div><h3 id="verifying-the-setup">Verifying the Setup</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># NVLink between GPUs</span>
+</span></span><span style="display:flex;"><span>nvidia-smi topo -m
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Should show NV18 between all GPU pairs</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># IB port status</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> dev in <span style="color:#66d9ef">$(</span>ls /sys/class/infiniband/ | grep mlx5<span style="color:#66d9ef">)</span>; <span style="color:#66d9ef">do</span>
+</span></span><span style="display:flex;"><span>    RATE<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>cat /sys/class/infiniband/$dev/ports/1/rate<span style="color:#66d9ef">)</span>
+</span></span><span style="display:flex;"><span>    STATE<span style="color:#f92672">=</span><span style="color:#66d9ef">$(</span>cat /sys/class/infiniband/$dev/ports/1/state<span style="color:#66d9ef">)</span>
+</span></span><span style="display:flex;"><span>    echo <span style="color:#e6db74">&#34;</span>$dev<span style="color:#e6db74">: </span>$RATE<span style="color:#e6db74"> </span>$STATE<span style="color:#e6db74">&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">done</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Should show: 400 Gb/sec (4X NDR), 4: ACTIVE</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># NVLink bandwidth (18 links × 26.5 GB/s = ~477 GB/s)</span>
+</span></span><span style="display:flex;"><span>nvidia-smi nvlink --status -i <span style="color:#ae81ff">0</span>
+</span></span></code></pre></div><h3 id="expected-nccl-all-reduce-performance">Expected NCCL All-Reduce Performance</h3>
+<p>For a 2-node × 8 GPU all-reduce with 16 GiB message:</p>
+<table>
+  <thead>
+      <tr>
+          <th>Configuration</th>
+          <th>Bus BW</th>
+          <th>Notes</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td>Baremetal (reference)</td>
+          <td>~380-400 GB/s</td>
+          <td>Full 8× NDR400 IB</td>
+      </tr>
+      <tr>
+          <td>VM with PF passthrough + GDR</td>
+          <td>~360-380 GB/s</td>
+          <td>Near-baremetal</td>
+      </tr>
+      <tr>
+          <td>VM with VF + GDR</td>
+          <td>~280-340 GB/s</td>
+          <td>VF overhead</td>
+      </tr>
+      <tr>
+          <td>VM with VF, no GDR</td>
+          <td>~180-200 GB/s</td>
+          <td>CPU staging</td>
+      </tr>
+  </tbody>
+</table>
+<hr>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="gdr-shows-0-in-nccl">GDR Shows 0 in NCCL</h3>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span><span style="color:#75715e"># Check nvidia_peermem is loaded</span>
+</span></span><span style="display:flex;"><span>lsmod | grep -iE <span style="color:#e6db74">&#39;peer|gdr&#39;</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># If not: modprobe nvidia_peermem</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Check NCCL plugin supports GDR</span>
+</span></span><span style="display:flex;"><span>NCCL_DEBUG<span style="color:#f92672">=</span>INFO NCCL_DEBUG_SUBSYS<span style="color:#f92672">=</span>NET your_test 2&gt;&amp;<span style="color:#ae81ff">1</span> | grep -i gdr
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># Force GDR</span>
+</span></span><span style="display:flex;"><span>export NCCL_NET_GDR_LEVEL<span style="color:#f92672">=</span>SYS
+</span></span><span style="display:flex;"><span>export NCCL_NET_GDR_READ<span style="color:#f92672">=</span><span style="color:#ae81ff">1</span>
+</span></span></code></pre></div><h3 id="different-mlx5-numbering-across-nodes">Different mlx5 Numbering Across Nodes</h3>
+<p>The <code>mlx5_N</code> naming depends on PCI enumeration order, which varies between hosts. Auto-detect instead of hardcoding:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;-webkit-text-size-adjust:none;"><code class="language-bash" data-lang="bash"><span style="display:flex;"><span>export NCCL_IB_HCA<span style="color:#f92672">=</span><span style="color:#66d9ef">$(for</span> d in /sys/class/infiniband/mlx5_*; <span style="color:#66d9ef">do</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">[</span> <span style="color:#e6db74">&#34;</span><span style="color:#66d9ef">$(</span>cat $d/ports/1/link_layer 2&gt;/dev/null<span style="color:#66d9ef">)</span><span style="color:#e6db74">&#34;</span> <span style="color:#f92672">=</span> <span style="color:#e6db74">&#34;InfiniBand&#34;</span> <span style="color:#f92672">]</span> <span style="color:#f92672">&amp;&amp;</span> basename $d
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">done</span> | paste -sd,<span style="color:#66d9ef">)</span>
+</span></span></code></pre></div><h3 id="qemu-hangs-with-many-pcie-root-ports">QEMU Hangs with Many PCIe Root Ports</h3>
+<p>Each pcie-root-port with <code>pref64-reserve=256G</code> consumes MMIO address space. More than ~10 ports with 256G each (&gt;2.5 TiB total) can hang SeaBIOS during BAR programming. Solutions:</p>
+<ul>
+<li>Reduce pref64-reserve on non-GPU ports (IB NICs only need 16M)</li>
+<li>Use fewer root ports</li>
+<li>Group GPU + IB behind a single port</li>
+</ul>
+<hr>
+<h2 id="conclusion">Conclusion</h2>
+<p>GPU and IB passthrough on DGX/HGX H200 is production-ready when configured correctly. The key principles:</p>
+<ol>
+<li><strong>ACS override</strong> enables per-device IOMMU groups</li>
+<li><strong>PF passthrough</strong> gives full 400 Gb/s per NIC (no VF overhead)</li>
+<li><strong>NCCL topology files</strong> compensate for the guest&rsquo;s flat PCIe topology</li>
+<li><strong>nvidia_peermem</strong> enables GPUDirect RDMA for zero-copy GPU↔NIC transfers</li>
+<li>The <strong>physical P2P path</strong> through the CX-7/TI/Broadcom switch works regardless of the guest&rsquo;s virtual topology</li>
+</ol>
+<p>With this setup, multi-node NCCL all-reduce achieves 90-95% of baremetal bandwidth — the remaining gap is purely VFIO DMA mapping overhead, not a fundamental limitation.</p>
+<ul class="pa0">
+  
+</ul>
+
+      
+    </div></article>
+
+    </main>
+    <footer class="bg-black bottom-0 w-100 pa3" role="contentinfo">
+  <div class="flex justify-between">
+  <a class="f4 fw4 hover-white white-70 dn dib-ns pv2 ph3 no-underline" href="http://localhost:1313/" >
+    &copy;  My New Hugo Project 2026 
+  </a>
+    <div><div class="ananke-socials"></div>
+</div>
+  </div>
+</footer>
+
+  </body>
+</html>
