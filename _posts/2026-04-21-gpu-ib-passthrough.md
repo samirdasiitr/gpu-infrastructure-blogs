@@ -1,12 +1,10 @@
 ---
+layout: post
 title: "GPU and InfiniBand Passthrough for DGX/HGX H200"
-date: 2026-04-21
-draft: false
-tags: ["gpu", "nccl", "infiniband", "vfio", "pcie"]
+date: 2026-04-21 00:00:00 +0000
+categories: gpu infra nccl
+tags: vfio pcie infiniband nccl dgx h200
 ---
-
-# GPU and InfiniBand Passthrough for DGX/HGX H200: A Deep Dive into PCIe Topology, IOMMU Groups, and NCCL Performance
-
 ## Introduction
 
 Running GPU workloads inside virtual machines requires careful attention to PCIe topology, IOMMU group isolation, and network fabric configuration. This guide covers the complete stack for NVIDIA DGX H200 and HGX H200 platforms — from VFIO passthrough setup to achieving near-baremetal NCCL all-reduce performance.
