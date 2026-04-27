@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Speeding Up 8-GPU VM Boot: Kernel 6.19, Hugepage Preallocation, and PCIe BAR Mapping"
-date: 2026-04-21 00:00:00 +0000
+date: 2025-04-21 00:00:00 +0000
 categories: gpu infra performance
 tags: qemu kvm hugepages pcie vfio dgx h200 kernel
 ---
@@ -23,10 +23,12 @@ We instrumented every phase of VM startup using QEMU wrap scripts, `dmesg` times
 | Hugepage preallocation | 60-90s | 5-8s | QEMU touches every page (`prealloc=on`) |
 | VFIO DMA mapping | 30-120s | 10-15s | Host IOMMU maps guest memory for each device |
 | SeaBIOS PCI BAR programming | 10-60s (or hang) | 2-3s | Firmware assigns MMIO windows to PCIe devices |
+| OVMF/UEFI + GRUB firmware chain | 5-14s | ~0.1s | Direct kernel boot bypasses OVMF and GRUB entirely |
+| Guest vIOMMU DMAR table build | 60-180s | 0s | Don't use guest vIOMMU for passthrough |
 | Guest kernel boot | 3-5s | 1-2s | Kernel init, module loading |
 | NVIDIA driver probe | 2-5s | 2-3s | `nvidia.ko` scans for GPUs |
 | systemd + kata-agent | 2-3s | 1-2s | Userspace init |
-| **Total** | **~120-300s** | **~25-35s** |  |
+| **Total** | **~180-480s** | **~25-35s** |  |
 
 The top three bottlenecks — hugepage preallocation, VFIO DMA mapping, and PCI BAR programming — account for 90%+ of boot time. Let's attack each one.
 
@@ -180,6 +182,33 @@ With 16 PCIe root ports, each reserving 256 GiB of prefetchable MMIO:
 ```
 
 SeaBIOS must find room in the guest's physical address space (limited by `host-phys-bits-limit=52` → 4 PiB) to map all these BARs. With 4 TiB of MMIO, SeaBIOS enters a slow iterative BAR assignment algorithm that can **hang for minutes** or fail entirely.
+
+### Guest PCIe Topology
+
+Inside the VM, `lspci -tv` reveals the topology that SeaBIOS (or OVMF) must program BARs for. Each VFIO-passthrough device sits behind a TI XIO3130 PCIe switch — this is QEMU's implementation of `pcie-root-port`:
+
+```
+lspci -tv (inside VM with device passthrough):
+
+ +-[0000:64]-+-00.0  TI XIO3130 PCIe Switch (Upstream)
+ |           +-00.0-[65-66]--+-00.0  TI XIO3130 (Downstream)
+ |           |               └-01.0  TI XIO3130 (Downstream)
+ |           +-66:00.0  NVIDIA H200 GPU
+ |           └-67:00.0  Mellanox ConnectX-7 IB
+```
+
+Each pcie-root-port has its own **prefetchable 64-bit MMIO window** (pref64). The firmware must size these windows before devices can initialize:
+
+- **GPU port** needs a 256 GiB pref64 window — the H200's BAR2 maps the full 141 GiB HBM plus control regions
+- **IB port** needs only ~16 MiB — ConnectX-7 VFs have small BARs
+
+With 16 root ports (8 GPU + 8 IB) and a naive "same size for all" approach, the firmware tries to allocate `16 × 256 GiB = 4 TiB` of MMIO space. This is what causes SeaBIOS to hang or spend minutes in its BAR assignment loop. The fix — split reserves per port type — gives the firmware a tractable address layout:
+
+```
+Ports 0-7  (GPU):  256G × 8 = 2048 GiB pref64
+Ports 8-15 (IB):    16M × 8 =  128 MiB pref64
+Total: ~2048 GiB (comfortably within phys-bits=52 limit)
+```
 
 ### The Fix: Split Pref64 Reserves
 
@@ -374,7 +403,7 @@ cmdline: ... pci=noio mitigations=off ...
 
 ---
 
-## Bottleneck 5: QEMU Debug Logging
+## Bottleneck 6: QEMU Debug Logging
 
 ### The Trap
 
