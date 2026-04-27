@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Speeding Up 8-GPU VM Boot: Kernel 6.19, Hugepage Preallocation, and PCIe BAR Mapping"
-date: 2025-04-21 00:00:00 +0000
+date: 2026-04-21 00:00:00 +0000
 categories: gpu infra performance
 tags: qemu kvm hugepages pcie vfio dgx h200 kernel
 ---
