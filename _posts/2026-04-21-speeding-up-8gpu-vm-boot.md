@@ -6,8 +6,6 @@ categories: gpu infra performance
 tags: qemu kvm hugepages pcie vfio dgx h200 kernel
 ---
 
-# Speeding Up 8-GPU VM Boot: Kernel 6.19, Hugepage Preallocation, and PCIe BAR Mapping
-
 ## Introduction
 
 Booting a virtual machine with 8 NVIDIA H200 GPUs, 8 InfiniBand NICs, 1 TiB of hugepage-backed RAM, and 192 vCPUs is not a trivial operation. On a DGX H200 / HGX H200 system, an untuned 8-GPU VM can take **5+ minutes** to become ready — most of that time spent before the guest kernel even prints its first message.

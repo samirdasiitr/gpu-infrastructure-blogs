@@ -6,8 +6,6 @@ categories: gpu infra nccl benchmark
 tags: nccl cuda hpcx mpi infiniband dgx h200 allreduce
 ---
 
-# Running Baremetal NCCL All-Reduce Benchmarks on DGX/HGX H200
-
 ## Introduction
 
 NCCL (NVIDIA Collective Communications Library) all-reduce is the definitive benchmark for multi-node GPU training performance. It measures how fast your GPUs can aggregate gradients across nodes — the operation that dominates distributed training wall-clock time.
