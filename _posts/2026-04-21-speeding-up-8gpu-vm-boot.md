@@ -219,7 +219,129 @@ The q35 machine type places a `pci-bridge` at PCI address `addr=2`. If pcie-root
 
 ---
 
-## Bottleneck 4: Guest vIOMMU (Don't Use It)
+## Bottleneck 4: Direct Kernel Boot (Bypass OVMF/UEFI)
+
+### The Problem
+
+By default, libvirt boots VMs through a firmware chain:
+
+```
+OVMF/UEFI (2-5s) → GRUB (1-2s) → kernel load from disk (1-2s) → kernel init
+```
+
+OVMF is a full UEFI implementation that:
+- Initializes virtual hardware
+- Enumerates PCI devices and programs BARs
+- Loads GRUB from the EFI system partition
+- GRUB reads `grub.cfg`, loads the kernel + initrd from the virtual disk
+- Only then does the Linux kernel start
+
+For an 8-GPU VM with 16+ PCIe devices, OVMF's PCI enumeration alone takes 3-10 seconds. With large prefetchable BAR windows (256 GiB per GPU), OVMF's BAR assignment can take even longer than SeaBIOS.
+
+### The Fix: `-kernel` and `-initrd` Direct Boot
+
+QEMU can load the kernel and initrd **directly into guest memory**, bypassing OVMF/GRUB entirely:
+
+```xml
+<os>
+  <type arch="x86_64" machine="pc-q35-10.2">hvm</type>
+  <kernel>/boot/vmlinuz-6.8.0-107-generic</kernel>
+  <initrd>/boot/initrd.img-6.8.0-107-generic</initrd>
+  <cmdline>root=/dev/vda1 console=ttyS0 earlyprintk=ttyS0 mitigations=off audit=0 nowatchdog pci=noio selinux=0</cmdline>
+  <boot dev="hd"/>
+</os>
+```
+
+**No `<loader>` or `<nvram>` elements** — their absence tells QEMU to use SeaBIOS (lightweight) instead of OVMF (heavy).
+
+### How It Works
+
+With direct kernel boot:
+
+```
+QEMU loads kernel+initrd into guest RAM (instant, ~100ms)
+  → SeaBIOS minimal PCI init (1-2s)
+    → Linux kernel starts directly
+      → mounts rootfs from /dev/vda1
+        → systemd → ready
+```
+
+Without direct boot (OVMF path):
+
+```
+QEMU starts OVMF firmware (500ms)
+  → OVMF PCI enumeration + BAR programming (3-10s for 16 devices)
+    → OVMF loads GRUB from EFI partition (1-2s)
+      → GRUB reads config, loads kernel from disk (1-2s)
+        → Linux kernel starts
+          → mounts rootfs
+            → systemd → ready
+```
+
+### Time Savings
+
+| Phase | OVMF Path | Direct Kernel Boot |
+|-------|-----------|-------------------|
+| Firmware init | 3-10s | 0s (no OVMF) |
+| GRUB | 1-2s | 0s (no GRUB) |
+| Kernel load | 1-2s from disk | ~100ms from RAM |
+| **Total firmware overhead** | **5-14s** | **~0.1s** |
+
+### The Trade-offs
+
+| Feature | OVMF | Direct Kernel Boot |
+|---------|------|-------------------|
+| Secure Boot | Yes | No |
+| EFI variables | Yes | No |
+| Boot menu | Yes | No |
+| Kernel selection | GRUB menu | Hardcoded in XML |
+| Kernel upgrades | `apt upgrade` inside VM | Update XML `<kernel>` path on host |
+| PCI BAR assignment | OVMF firmware | SeaBIOS (lighter) or kernel `pci=noio` |
+
+### Kernel and Initrd Placement
+
+The `<kernel>` and `<initrd>` paths are on the **host filesystem**, not the guest. The host must have the guest's kernel available:
+
+```bash
+# Option 1: Copy from guest image
+virt-copy-out -d dgx-vm /boot/vmlinuz-6.8.0-107-generic /tmp/
+virt-copy-out -d dgx-vm /boot/initrd.img-6.8.0-107-generic /tmp/
+
+# Option 2: Mount guest image and copy
+guestmount -a /var/lib/libvirt/images/dgx-vm.qcow2 -m /dev/sda1 /mnt
+cp /mnt/boot/vmlinuz-6.8.0-107-generic /boot/
+cp /mnt/boot/initrd.img-6.8.0-107-generic /boot/
+umount /mnt
+
+# Option 3: Share kernel via virtiofs (update path in XML)
+# Keep kernels in /srv/tenant/boot/ and reference from XML
+```
+
+### Combining with `pci=noio`
+
+The `pci=noio` kernel parameter tells Linux to skip PCI resource rebalancing — trusting the firmware's (SeaBIOS) BAR assignments. This avoids the kernel re-doing work that SeaBIOS already completed:
+
+```xml
+<cmdline>root=/dev/vda1 rw console=ttyS0 pci=noio mitigations=off audit=0 nowatchdog selinux=0</cmdline>
+```
+
+### Complete Example: Fastest Possible Boot Config
+
+```xml
+<os>
+  <type arch="x86_64" machine="pc-q35-10.2">hvm</type>
+  <!-- Direct kernel boot — no OVMF, no GRUB -->
+  <kernel>/boot/vmlinuz-6.8.0-107-generic</kernel>
+  <initrd>/boot/initrd.img-6.8.0-107-generic</initrd>
+  <cmdline>root=/dev/vda1 rw console=ttyS0 earlyprintk=ttyS0 pci=noio mitigations=off audit=0 nowatchdog transparent_hugepage=always default_hugepagesz=1G hugepagesz=1G selinux=0 modprobe.blacklist=nouveau</cmdline>
+  <!-- No <loader> or <nvram> = no OVMF -->
+  <boot dev="hd"/>
+</os>
+```
+
+---
+
+## Bottleneck 5: Guest vIOMMU (Don't Use It)
 
 ### The Problem
 
